@@ -1,0 +1,76 @@
+Quick Screen Off (fast, requires Shizuku)
+Use Activity-based command for the most reliable triggering. After execution, the service automatically cleans up and exits.
+
+Turn screen off:
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1
+
+Turn screen on:
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 0
+
+Turn screen off with auto-wake timer (N seconds later, screen turns back on automatically):
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer <seconds>
+Example - turn screen off and auto-wake after 300 seconds (5 minutes):
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer 300
+Example - turn screen off and auto-wake after 30 seconds:
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer 30
+
+How timer works: the service stays alive as a foreground process, waits N seconds, then executes the reverse action (lights on / off) and exits. No background residue after completion.
+
+Quick Screen Off (root only, no Shizuku needed)
+Use root privilege to directly execute the screen power control via app_process. No Shizuku required.
+
+First, get your APK path:
+`pm path own.moderpach.extinguish
+
+Then use the returned path to execute:
+
+Turn screen off:
+`su -c 'CLASSPATH=<your_apk_path> app_process / own.moderpach.extinguish.service.RootScreenOff off'
+
+Turn screen on:
+`su -c 'CLASSPATH=<your_apk_path> app_process / own.moderpach.extinguish.service.RootScreenOff on'
+
+Example (replace the path with your actual APK path from pm path):
+`su -c 'CLASSPATH=/data/app/~~xxxx/own.moderpach.extinguish-yyyy/base.apk app_process / own.moderpach.extinguish.service.RootScreenOff off'
+
+
+Extinguish Service (classic mode)
+You can control the Extinguish service externally through the Android Debug Bridge (ADB).
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei <Parameter> <Value>
+You can specify multiple parameters or no parameters. You need to add '--ei' before each specified parameter.
+
+Parameter screen
+    0 Turn screen on
+    1 Turn screen off
+    2 Switch screen state
+Example
+Turn screen on:
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei screen 0
+Turn screen off:
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei screen 1
+Switch screen state:
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei screen 2
+
+Parameter fb
+    0 Show floating button
+    1 Hide floating button
+    2 Switch floating button state
+* This parameter does not override the floating button enable setting
+Example
+Show floating button:
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei fb 0
+Hide floating button:
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei fb 1
+Switch floating button state:
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei fb 2
+
+Parameter rfb
+    1 Remove floating button in this service
+* This parameter overrides the floating button enabled setting and is only valid when the Extinguish service is not running.
+Example
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei rfb 1
+
+Parameter stop
+    1 Stop service
+Example
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei stop 1

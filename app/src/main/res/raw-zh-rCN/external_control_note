@@ -1,0 +1,76 @@
+快速灭屏（推荐，需要 Shizuku）
+使用 Activity 方式触发，兼容性最好。执行完成后自动清理退出，无后台残留。
+
+关闭屏幕：
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1
+
+打开屏幕：
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 0
+
+关闭屏幕并定时自动恢复（N秒后自动亮屏）：
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer <秒数>
+示例 - 灭屏5分钟（300秒）后自动亮屏：
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer 300
+示例 - 灭屏30秒后自动亮屏：
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer 30
+
+定时原理：服务会以前台进程运行，等待N秒后自动执行反向操作（亮屏/关屏），然后退出。定时结束后无任何后台残留。
+
+快速灭屏（仅 Root，无需 Shizuku）
+通过 root 权限直接使用 app_process 执行屏幕电源控制，不需要 Shizuku。
+
+首先获取 APK 路径：
+`pm path own.moderpach.extinguish
+
+然后用返回的路径执行：
+
+关闭屏幕：
+`su -c 'CLASSPATH=<你的apk路径> app_process / own.moderpach.extinguish.service.RootScreenOff off'
+
+打开屏幕：
+`su -c 'CLASSPATH=<你的apk路径> app_process / own.moderpach.extinguish.service.RootScreenOff on'
+
+示例（将路径替换为 pm path 返回的实际路径）：
+`su -c 'CLASSPATH=/data/app/~~xxxx/own.moderpach.extinguish-yyyy/base.apk app_process / own.moderpach.extinguish.service.RootScreenOff off'
+
+
+Extinguish 服务（经典模式）
+您可以通过 Android 调试桥（ADB），从外部控制 Extinguish 服务。
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei <参数名> <参数值>
+您可以指定多个参数或不指定参数。每个指定的参数前都需要添加 '--ei' 。
+
+参数 screen
+    0 打开屏幕
+    1 关闭屏幕
+    2 切换屏幕状态
+示例
+打开屏幕：
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei screen 0
+关闭屏幕：
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei screen 1
+切换屏幕状态：
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei screen 2
+
+参数 fb
+    0 显示悬浮按钮
+    1 隐藏悬浮按钮
+    2 切换悬浮按钮状态
+* 该参数不会覆盖悬浮按钮启用设置
+示例
+显示悬浮按钮：
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei fb 0
+隐藏悬浮按钮：
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei fb 1
+切换悬浮按钮状态：
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei fb 2
+
+参数 rfb
+    1 在本次服务中移除悬浮按钮
+* 该参数会覆盖悬浮按钮启用设置，且只在 Extinguish 服务未运行时添加才有效。
+示例
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei rfb 1
+
+参数 stop
+    1 停止服务
+示例
+`adb shell am startservice -n own.moderpach.extinguish/.service.ExtinguishService --ei stop 1

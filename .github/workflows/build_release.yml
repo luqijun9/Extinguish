@@ -1,0 +1,92 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Build release apk and app bundle
+
+# Controls when the workflow will run
+on: workflow_dispatch
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+
+      - name: Retrieve the secret and decode it to a file
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          echo $KEYSTORE_BASE64 | base64 --decode > extinguish.jks
+          echo "KEY_STORE_FILE=${{ github.workspace }}/extinguish.jks" >> $GITHUB_ENV
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'corretto' # See 'Supported distributions' for available options
+          java-version: '17'
+
+      - name: Setup android cmdline tools
+        run: |
+          sudo apt-get install -y curl unzip
+          curl https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o commandline-tools.zip
+          unzip commandline-tools.zip
+          mkdir .android
+          mkdir .android/sdk
+          mv cmdline-tools .android/sdk
+          echo "ANDROID_SDK=${{ github.workspace }}/.android/sdk" >> "$GITHUB_ENV"
+          echo "CMDLINE_TOOLS=${{ github.workspace }}/.android/sdk/cmdline-tools/bin" >> "$GITHUB_ENV"
+
+      - name: Setup android build tools
+        run: |
+          yes | $CMDLINE_TOOLS/sdkmanager --licenses --sdk_root=$ANDROID_SDK
+          $CMDLINE_TOOLS/sdkmanager --install "build-tools;35.0.0" --sdk_root=$ANDROID_SDK
+          echo "BUILD_TOOLS=$ANDROID_SDK/build-tools/35.0.0" >> "$GITHUB_ENV"
+
+      - name: Build unsigned apk and app bundle
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleUnsignedRelease
+          ./gradlew :app:bundleUnsignedRelease
+
+      - name: Signing apk
+        env:
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.KEY_PASS }}
+          UNSIGNED_APP_NAME: app-unsigned-release-unsigned.apk
+          ALIGN_APP_NAME: app-release-aligned.apk
+          SIGNED_APP_NAME: app-release.apk
+        working-directory: app/build/outputs/apk/unsigned/release
+        run: |
+          $BUILD_TOOLS/zipalign -v -p 4 $UNSIGNED_APP_NAME $ALIGN_APP_NAME
+          $BUILD_TOOLS/apksigner sign --ks $KEY_STORE_FILE --ks-key-alias $KEY_ALIAS --ks-pass pass:$KEYSTORE_PASS --key-pass pass:$KEY_PASS --out $SIGNED_APP_NAME $ALIGN_APP_NAME
+
+      - name: Signing app bundle
+        env:
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.KEY_PASS }}
+          UNSIGNED_APP_NAME: app-unsigned-release.aab
+          SIGNED_APP_NAME: app-release.aab
+        working-directory: app/build/outputs/bundle/unsignedRelease
+        run: |
+          jarsigner -keystore $KEY_STORE_FILE -storepass $KEYSTORE_PASS -keypass $KEY_PASS $UNSIGNED_APP_NAME $KEY_ALIAS
+          mv $UNSIGNED_APP_NAME $SIGNED_APP_NAME
+
+      - name: Output in place
+        run: |
+          mkdir output
+          mv app/build/outputs/apk/unsigned/release/app-release.apk output
+          mv app/build/outputs/bundle/unsignedRelease/app-release.aab output
+
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: output/
