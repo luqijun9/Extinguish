@@ -362,7 +362,28 @@ class QuickScreenOffService : Service() {
         }
     }
 
-    private fun toggleScreenByVolumeKey(isVolumeUp: Boolean) {
+    private fun toggleScreenAndCancel() {
+        if (timerCancelled) return
+        displayControl?.setPowerModeToSurfaceControl(DisplayControlService.POWER_MODE_NORMAL)
+        Log.d(TAG, "volume up: turned screen on and cancelling timer")
+        try {
+            val am = getSystemService(AUDIO_SERVICE) as AudioManager
+            am.adjustVolume(AudioManager.ADJUST_LOWER, 0)
+            Log.d(TAG, "volume down to offset volume up key press")
+        } catch (e: Exception) {
+            Log.w(TAG, "failed to adjust volume: $e")
+        }
+        timerCancelled = true
+        timerJob?.cancel()
+        timerJob = null
+        notifyTimerCancelled()
+        scope.launch {
+            delay(5000)
+            stopSelfAndCleanup()
+        }
+    }
+
+    private fun toggleScreenByVolumeKey() {
         if (timerCancelled) return
         if (currentScreenMode == DisplayControlService.POWER_MODE_OFF) {
             currentScreenMode = DisplayControlService.POWER_MODE_NORMAL
@@ -370,17 +391,7 @@ class QuickScreenOffService : Service() {
             currentScreenMode = DisplayControlService.POWER_MODE_OFF
         }
         displayControl?.setPowerModeToSurfaceControl(currentScreenMode)
-        Log.d(TAG, "volume key toggled screen to: $currentScreenMode")
-
-        if (isVolumeUp) {
-            try {
-                val am = getSystemService(AUDIO_SERVICE) as AudioManager
-                am.adjustVolume(AudioManager.ADJUST_LOWER, 0)
-                Log.d(TAG, "volume down to offset volume up key press")
-            } catch (e: Exception) {
-                Log.w(TAG, "failed to adjust volume: $e")
-            }
-        }
+        Log.d(TAG, "volume down toggled screen to: $currentScreenMode")
     }
 
     private fun notifyTimerCancelled() {
