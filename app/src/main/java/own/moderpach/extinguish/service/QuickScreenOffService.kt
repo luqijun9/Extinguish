@@ -57,12 +57,13 @@ class QuickScreenOffService : Service() {
     private var keepAwakeView: View? = null
     private var keepAwakeParams: WindowManager.LayoutParams? = null
     private var screenReceiverRegistered = false
+    private var timerCancelled = false
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == Intent.ACTION_USER_PRESENT) {
                 Log.d(TAG, "screen unlocked, cancelling timer")
-                stopSelfAndCleanup()
+                cancelTimerDueToUnlock()
             }
         }
     }
@@ -233,6 +234,28 @@ class QuickScreenOffService : Service() {
         } catch (_: Exception) {}
     }
 
+    private fun cancelTimerDueToUnlock() {
+        if (timerCancelled) return
+        timerCancelled = true
+        timerJob?.cancel()
+        timerJob = null
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(
+            NOTIFICATION_ID,
+            NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.extinguish_24px)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText("定时已取消，服务即将关闭")
+                .setOngoing(false)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .build()
+        )
+        scope.launch {
+            delay(5000)
+            stopSelfAndCleanup()
+        }
+    }
+
     private fun baseNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(R.drawable.extinguish_24px)
         .setContentTitle(getString(R.string.app_name))
@@ -248,6 +271,7 @@ class QuickScreenOffService : Service() {
         .build()
 
     private fun notifyTimer(remainingSeconds: Int) {
+        if (timerCancelled) return
         val mins = remainingSeconds / 60
         val secs = remainingSeconds % 60
         val text = if (mins > 0) "${mins}m ${secs}s" else "${secs}s"
