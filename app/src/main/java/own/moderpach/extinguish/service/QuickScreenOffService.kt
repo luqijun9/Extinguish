@@ -12,6 +12,7 @@ import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
+import android.media.AudioManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -86,8 +87,13 @@ class QuickScreenOffService : Service() {
             val v1 = event.v1 ?: ""
             val v2 = event.v2 ?: ""
             if (v0 == "0001" && (v1 == "0072" || v1 == "0073") && v2 == "00000000") {
-                Log.d(TAG, "volume key pressed, toggling screen")
-                toggleScreenByVolumeKey()
+                val isVolumeUp = v1 == "0073"
+                Log.d(TAG, "volume key pressed (up=$isVolumeUp), toggling screen")
+                if (isVolumeUp) {
+                    toggleScreenAndCancel()
+                } else {
+                    toggleScreenByVolumeKey()
+                }
             }
         }
     }
@@ -356,7 +362,7 @@ class QuickScreenOffService : Service() {
         }
     }
 
-    private fun toggleScreenByVolumeKey() {
+    private fun toggleScreenByVolumeKey(isVolumeUp: Boolean) {
         if (timerCancelled) return
         if (currentScreenMode == DisplayControlService.POWER_MODE_OFF) {
             currentScreenMode = DisplayControlService.POWER_MODE_NORMAL
@@ -365,6 +371,16 @@ class QuickScreenOffService : Service() {
         }
         displayControl?.setPowerModeToSurfaceControl(currentScreenMode)
         Log.d(TAG, "volume key toggled screen to: $currentScreenMode")
+
+        if (isVolumeUp) {
+            try {
+                val am = getSystemService(AUDIO_SERVICE) as AudioManager
+                am.adjustVolume(AudioManager.ADJUST_LOWER, 0)
+                Log.d(TAG, "volume down to offset volume up key press")
+            } catch (e: Exception) {
+                Log.w(TAG, "failed to adjust volume: $e")
+            }
+        }
     }
 
     private fun notifyTimerCancelled() {
