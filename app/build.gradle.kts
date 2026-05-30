@@ -31,16 +31,7 @@ android {
         }
     }
 
-    signingConfigs {
-        getByName("debug") {
-            // Android Studio 自动生成的 debug 签名，无需额外配置
-            // storeFile / storePassword / keyAlias / keyPassword 已自动填充
-        }
-    }
     buildTypes {
-        getByName("debug") {
-            signingConfig = signingConfigs.getByName("debug")
-        }
         getByName("release") {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -48,7 +39,17 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // signingConfig = signingConfigs.getByName("release")  // 发布时取消注释并配置签名
+        }
+    }
+    flavorDimensions += "sign"
+    productFlavors {
+        create("debugSigned") {
+            dimension = "sign"
+            signingConfig = signingConfigs.getByName("debug")
+        }
+        create("unsigned") {
+            dimension = "sign"
+            signingConfig = null
         }
     }
     compileOptions {
