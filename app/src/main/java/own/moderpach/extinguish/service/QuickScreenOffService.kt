@@ -233,9 +233,12 @@ class QuickScreenOffService : Service() {
         registerScreenReceiver()
         tryStartVolumeKey()
 
+        notifyTimer(timerSeconds)
+
         timerJob?.cancel()
         timerJob = scope.launch {
-            var remaining = timerSeconds
+            delay(1000)
+            var remaining = timerSeconds - 1
             while (remaining > 0 && isActive) {
                 notifyTimer(remaining)
                 delay(1000)
