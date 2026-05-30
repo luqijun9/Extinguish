@@ -45,6 +45,7 @@ class QuickScreenOffService : Service() {
         const val EXTRA_SCREEN = "screen"
         const val EXTRA_TIMER = "timer"
         const val EXTRA_VOLKEY = "volkey"
+        const val EXTRA_CANCEL = "cancel"
         const val SCREEN_ON = 0
         const val SCREEN_OFF = 1
 
@@ -67,6 +68,7 @@ class QuickScreenOffService : Service() {
     private var timerCancelled = false
     private var volumeKeyRegistered = false
     private var volkeyEnabled = false
+    private var currentScreenMode = DisplayControlService.POWER_MODE_NORMAL
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -79,13 +81,13 @@ class QuickScreenOffService : Service() {
 
     private val volumeKeyListener = object : IEventsListener.Stub() {
         override fun onEvent(event: EventResult) {
+            if (timerCancelled) return
             val v0 = event.v0 ?: ""
             val v1 = event.v1 ?: ""
             val v2 = event.v2 ?: ""
-            Log.d(TAG, "volume key event: v0=$v0 v1=$v1 v2=$v2")
             if (v0 == "0001" && (v1 == "0072" || v1 == "0073") && v2 == "00000000") {
-                Log.d(TAG, "volume key pressed, cancelling timer and turning screen on")
-                cancelTimerDueToVolumeKey()
+                Log.d(TAG, "volume key pressed, toggling screen")
+                toggleScreenByVolumeKey()
             }
         }
     }
@@ -190,6 +192,21 @@ class QuickScreenOffService : Service() {
             stopSelfAndCleanup()
             return START_NOT_STICKY
         }
+        if (intent.getIntExtra(EXTRA_CANCEL, 0) == 1) {
+            Log.d(TAG, "cancel requested from notification")
+            if (!timerCancelled) {
+                timerCancelled = true
+                displayControl?.setPowerModeToSurfaceControl(DisplayControlService.POWER_MODE_NORMAL)
+                notifyTimerCancelled()
+                timerJob?.cancel()
+                timerJob = null
+            }
+            scope.launch {
+                delay(5000)
+                stopSelfAndCleanup()
+            }
+            return START_NOT_STICKY
+        }
         pendingAction = when (intent.getIntExtra(EXTRA_SCREEN, -1)) {
             SCREEN_ON -> DisplayControlService.POWER_MODE_NORMAL
             SCREEN_OFF -> DisplayControlService.POWER_MODE_OFF
@@ -232,6 +249,8 @@ class QuickScreenOffService : Service() {
         addKeepAwakeWindow()
         registerScreenReceiver()
         tryStartVolumeKey()
+
+        currentScreenMode = currentAction
 
         notifyTimer(timerSeconds)
 
@@ -329,6 +348,7 @@ class QuickScreenOffService : Service() {
         timerCancelled = true
         timerJob?.cancel()
         timerJob = null
+        displayControl?.setPowerModeToSurfaceControl(DisplayControlService.POWER_MODE_NORMAL)
         notifyTimerCancelled()
         scope.launch {
             delay(5000)
@@ -336,18 +356,15 @@ class QuickScreenOffService : Service() {
         }
     }
 
-    private fun cancelTimerDueToVolumeKey() {
+    private fun toggleScreenByVolumeKey() {
         if (timerCancelled) return
-        timerCancelled = true
-        timerJob?.cancel()
-        timerJob = null
-        displayControl?.setPowerModeToSurfaceControl(DisplayControlService.POWER_MODE_NORMAL)
-        Log.d(TAG, "volume key woke screen")
-        notifyTimerCancelled()
-        scope.launch {
-            delay(5000)
-            stopSelfAndCleanup()
+        if (currentScreenMode == DisplayControlService.POWER_MODE_OFF) {
+            currentScreenMode = DisplayControlService.POWER_MODE_NORMAL
+        } else {
+            currentScreenMode = DisplayControlService.POWER_MODE_OFF
         }
+        displayControl?.setPowerModeToSurfaceControl(currentScreenMode)
+        Log.d(TAG, "volume key toggled screen to: $currentScreenMode")
     }
 
     private fun notifyTimerCancelled() {
@@ -383,8 +400,11 @@ class QuickScreenOffService : Service() {
         val mins = remainingSeconds / 60
         val secs = remainingSeconds % 60
         val text = if (mins > 0) "${mins}m ${secs}s" else "${secs}s"
-        val hint = if (volkeyEnabled) "（按音量键亮屏）" else ""
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val hint = if (volkeyEnabled) {
+            if (currentScreenMode == DisplayControlService.POWER_MODE_OFF) "（按音量键亮屏）"
+            else "（屏幕已亮，按音量键灭屏）"
+        } else ""
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.extinguish_24px)
             .setContentTitle(getString(R.string.app_name))
             .setContentText("定时 $text 后恢复$hint")
@@ -394,11 +414,19 @@ class QuickScreenOffService : Service() {
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
             )
+            .addAction(
+                android.R.drawable.ic_delete,
+                "取消",
+                PendingIntent.getService(
+                    this, 1,
+                    Intent(this, QuickScreenOffService::class.java).putExtra(EXTRA_CANCEL, 1),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(NOTIFICATION_ID, notification)
+        nm.notify(NOTIFICATION_ID, builder.build())
     }
 
     private fun createNotificationChannel() {
