@@ -19,8 +19,12 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
+import extinguish.ipc.result.EventResult
 import extinguish.shizuku_service.DisplayControlService
+import extinguish.shizuku_service.EventsProviderService
 import extinguish.shizuku_service.IDisplayControl
+import extinguish.shizuku_service.IEventsListener
+import extinguish.shizuku_service.IEventsProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,16 +44,19 @@ class QuickScreenOffService : Service() {
     companion object {
         const val EXTRA_SCREEN = "screen"
         const val EXTRA_TIMER = "timer"
+        const val EXTRA_VOLKEY = "volkey"
         const val SCREEN_ON = 0
         const val SCREEN_OFF = 1
 
         private const val NOTIFICATION_ID = 9001
         private const val CHANNEL_ID = "quick_screen_off"
         private const val SHIZUKU_TIMEOUT_MS = 15_000L
+        private const val VOLUME_KEY_FILTER = "-F -e \": 0001 0072\" -e \": 0001 0073\""
     }
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var displayControl: IDisplayControl? = null
+    private var eventsProvider: IEventsProvider? = null
     private var pendingAction = -1
     private var timerSeconds = 0
     private var timerJob: kotlinx.coroutines.Job? = null
@@ -58,6 +65,8 @@ class QuickScreenOffService : Service() {
     private var keepAwakeParams: WindowManager.LayoutParams? = null
     private var screenReceiverRegistered = false
     private var timerCancelled = false
+    private var volumeKeyRegistered = false
+    private var volkeyEnabled = false
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -68,7 +77,20 @@ class QuickScreenOffService : Service() {
         }
     }
 
-    private val args = Shizuku.UserServiceArgs(
+    private val volumeKeyListener = object : IEventsListener.Stub() {
+        override fun onEvent(event: EventResult) {
+            val v0 = event.v0 ?: ""
+            val v1 = event.v1 ?: ""
+            val v2 = event.v2 ?: ""
+            Log.d(TAG, "volume key event: v0=$v0 v1=$v1 v2=$v2")
+            if (v0 == "0001" && (v1 == "0072" || v1 == "0073") && v2 == "00000000") {
+                Log.d(TAG, "volume key pressed, cancelling timer and turning screen on")
+                cancelTimerDueToVolumeKey()
+            }
+        }
+    }
+
+    private val displayControlArgs = Shizuku.UserServiceArgs(
         ComponentName(BuildConfig.APPLICATION_ID, DisplayControlService::class.java.name)
     )
         .processNameSuffix("quick_off")
@@ -77,18 +99,43 @@ class QuickScreenOffService : Service() {
         .version(BuildConfig.VERSION_CODE)
         .daemon(true)
 
-    private val connection = object : ServiceConnection {
+    private val eventsProviderArgs = Shizuku.UserServiceArgs(
+        ComponentName(BuildConfig.APPLICATION_ID, EventsProviderService::class.java.name)
+    )
+        .processNameSuffix("quick_off_events")
+        .tag("quick_off_events")
+        .debuggable(false)
+        .version(BuildConfig.VERSION_CODE)
+        .daemon(true)
+
+    private val displayConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             if (binder != null && Shizuku.pingBinder()) {
                 displayControl = IDisplayControl.Stub.asInterface(binder)
-                Log.d(TAG, "Shizuku service connected")
+                Log.d(TAG, "displayControl connected")
             }
             executeAction()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
             displayControl = null
-            Log.d(TAG, "Shizuku service disconnected")
+            Log.d(TAG, "displayControl disconnected")
+        }
+    }
+
+    private val eventsConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            if (binder != null && Shizuku.pingBinder()) {
+                eventsProvider = IEventsProvider.Stub.asInterface(binder)
+                Log.d(TAG, "eventsProvider connected")
+            }
+            tryStartVolumeKey()
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            eventsProvider = null
+            volumeKeyRegistered = false
+            Log.d(TAG, "eventsProvider disconnected")
         }
     }
 
@@ -122,9 +169,19 @@ class QuickScreenOffService : Service() {
     private fun bindShizukuService() {
         try {
             if (!Shizuku.pingBinder()) return
-            Shizuku.bindUserService(args, connection)
+            Shizuku.bindUserService(displayControlArgs, displayConnection)
         } catch (e: Exception) {
             Log.e(TAG, "bindUserService failed: $e")
+        }
+    }
+
+    private fun bindEventsServiceIfNeeded() {
+        if (!volkeyEnabled) return
+        try {
+            if (!Shizuku.pingBinder()) return
+            Shizuku.bindUserService(eventsProviderArgs, eventsConnection)
+        } catch (e: Exception) {
+            Log.e(TAG, "bindEventsService failed: $e")
         }
     }
 
@@ -142,6 +199,10 @@ class QuickScreenOffService : Service() {
             }
         }
         timerSeconds = intent.getIntExtra(EXTRA_TIMER, 0)
+        volkeyEnabled = intent.getIntExtra(EXTRA_VOLKEY, 0) == 1
+        if (volkeyEnabled) {
+            bindEventsServiceIfNeeded()
+        }
         if (displayControl != null) {
             executeAction()
         }
@@ -170,6 +231,7 @@ class QuickScreenOffService : Service() {
 
         addKeepAwakeWindow()
         registerScreenReceiver()
+        tryStartVolumeKey()
 
         timerJob?.cancel()
         timerJob = scope.launch {
@@ -184,6 +246,31 @@ class QuickScreenOffService : Service() {
                 Log.d(TAG, "timer fired, reverse to: $reverseAction")
             }
             stopSelfAndCleanup()
+        }
+    }
+
+    private fun tryStartVolumeKey() {
+        if (!volkeyEnabled) return
+        val provider = eventsProvider ?: return
+        if (volumeKeyRegistered) return
+        volumeKeyRegistered = true
+        try {
+            provider.registerListener(volumeKeyListener)
+            provider.launch(VOLUME_KEY_FILTER)
+            Log.d(TAG, "volume key listener registered")
+        } catch (e: Exception) {
+            Log.w(TAG, "volume key register failed: $e")
+        }
+    }
+
+    private fun stopVolumeKey() {
+        val provider = eventsProvider
+        if (volumeKeyRegistered) {
+            try {
+                provider?.unregisterListener(volumeKeyListener)
+                provider?.stop()
+            } catch (_: Exception) {}
+            volumeKeyRegistered = false
         }
     }
 
@@ -239,6 +326,28 @@ class QuickScreenOffService : Service() {
         timerCancelled = true
         timerJob?.cancel()
         timerJob = null
+        notifyTimerCancelled()
+        scope.launch {
+            delay(5000)
+            stopSelfAndCleanup()
+        }
+    }
+
+    private fun cancelTimerDueToVolumeKey() {
+        if (timerCancelled) return
+        timerCancelled = true
+        timerJob?.cancel()
+        timerJob = null
+        displayControl?.setPowerModeToSurfaceControl(DisplayControlService.POWER_MODE_NORMAL)
+        Log.d(TAG, "volume key woke screen")
+        notifyTimerCancelled()
+        scope.launch {
+            delay(5000)
+            stopSelfAndCleanup()
+        }
+    }
+
+    private fun notifyTimerCancelled() {
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(
             NOTIFICATION_ID,
@@ -250,10 +359,6 @@ class QuickScreenOffService : Service() {
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build()
         )
-        scope.launch {
-            delay(5000)
-            stopSelfAndCleanup()
-        }
     }
 
     private fun baseNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -275,10 +380,11 @@ class QuickScreenOffService : Service() {
         val mins = remainingSeconds / 60
         val secs = remainingSeconds % 60
         val text = if (mins > 0) "${mins}m ${secs}s" else "${secs}s"
+        val hint = if (volkeyEnabled) "（按音量键亮屏）" else ""
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.extinguish_24px)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText("定时 $text 后恢复")
+            .setContentText("定时 $text 后恢复$hint")
             .setContentIntent(
                 PendingIntent.getActivity(
                     this, 0, Intent(this, MainActivity::class.java),
@@ -303,6 +409,7 @@ class QuickScreenOffService : Service() {
 
     private fun stopSelfAndCleanup() {
         timerJob?.cancel()
+        stopVolumeKey()
         unregisterScreenReceiver()
         removeKeepAwakeWindow()
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -315,10 +422,14 @@ class QuickScreenOffService : Service() {
     override fun onDestroy() {
         timerJob?.cancel()
         scope.cancel()
+        stopVolumeKey()
         unregisterScreenReceiver()
         removeKeepAwakeWindow()
         try {
-            Shizuku.unbindUserService(args, connection, false)
+            Shizuku.unbindUserService(displayControlArgs, displayConnection, false)
+            if (volkeyEnabled) {
+                Shizuku.unbindUserService(eventsProviderArgs, eventsConnection, false)
+            }
         } catch (_: Exception) {
         }
         super.onDestroy()

@@ -16,6 +16,17 @@
 
 定时原理：服务会以前台进程运行，等待N秒后自动执行反向操作（亮屏/关屏），然后退出。定时结束后无任何后台残留。
 
+参数 volkey
+    设为 1 可在倒计时期间启用音量键唤醒。
+    启用后，按下任意音量键（上或下）将立即亮屏并取消定时器。
+    不指定此参数（默认 0）则不监听音量键。
+    仅在与 timer 参数搭配使用时生效。
+示例 - 灭屏5分钟后亮屏，启用音量键唤醒：
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer 300 --ei volkey 1
+示例 - 灭屏30秒后亮屏，不启用音量键监听：
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer 30
+volkey 原理：通过 Shizuku 运行 getevent 监听音量键按下事件。空闲时阻塞读取输入设备，几乎不耗电。锁屏解锁后自动取消定时器。
+
 快速灭屏（仅 Root，无需 Shizuku）
 通过 root 权限直接使用 app_process 执行屏幕电源控制，不需要 Shizuku。
 

@@ -11,11 +11,13 @@ class QuickScreenOffActivity : Activity() {
 
         val screen = intent.getIntExtra(QuickScreenOffService.EXTRA_SCREEN, -1)
         val timer = intent.getIntExtra(QuickScreenOffService.EXTRA_TIMER, -1)
+        val volkey = intent.getIntExtra(QuickScreenOffService.EXTRA_VOLKEY, 0)
         if (screen in 0..1) {
             startForegroundService(
                 Intent(this, QuickScreenOffService::class.java).apply {
                     putExtra(QuickScreenOffService.EXTRA_SCREEN, screen)
                     if (timer > 0) putExtra(QuickScreenOffService.EXTRA_TIMER, timer)
+                    if (volkey == 1) putExtra(QuickScreenOffService.EXTRA_VOLKEY, 1)
                 }
             )
         }

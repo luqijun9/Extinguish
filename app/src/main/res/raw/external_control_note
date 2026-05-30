@@ -16,6 +16,17 @@ Example - turn screen off and auto-wake after 30 seconds:
 
 How timer works: the service stays alive as a foreground process, waits N seconds, then executes the reverse action (lights on / off) and exits. No background residue after completion.
 
+Parameter volkey
+    Set to 1 to enable volume key wake-up during timer countdown.
+    When enabled, pressing either volume key (up or down) will immediately turn the screen on and cancel the timer.
+    Omit this parameter (default 0) to disable volume key monitoring.
+    Only takes effect when used together with the timer parameter.
+Example - turn screen off with 300s timer and volume key wake:
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer 300 --ei volkey 1
+Example - turn screen off with 30s timer, no volume key monitoring:
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer 30
+How volkey works: uses getevent to monitor volume key presses via Shizuku. Idle monitoring has negligible battery impact (blocking read on input device). During lock screen unlock, the timer is automatically cancelled.
+
 Quick Screen Off (root only, no Shizuku needed)
 Use root privilege to directly execute the screen power control via app_process. No Shizuku required.
 
