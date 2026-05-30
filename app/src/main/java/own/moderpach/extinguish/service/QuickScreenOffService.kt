@@ -4,8 +4,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
@@ -53,6 +56,16 @@ class QuickScreenOffService : Service() {
 
     private var keepAwakeView: View? = null
     private var keepAwakeParams: WindowManager.LayoutParams? = null
+    private var screenReceiverRegistered = false
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_USER_PRESENT) {
+                Log.d(TAG, "screen unlocked, cancelling timer")
+                stopSelfAndCleanup()
+            }
+        }
+    }
 
     private val args = Shizuku.UserServiceArgs(
         ComponentName(BuildConfig.APPLICATION_ID, DisplayControlService::class.java.name)
@@ -155,6 +168,7 @@ class QuickScreenOffService : Service() {
             DisplayControlService.POWER_MODE_OFF
 
         addKeepAwakeWindow()
+        registerScreenReceiver()
 
         timerJob?.cancel()
         timerJob = scope.launch {
@@ -204,6 +218,21 @@ class QuickScreenOffService : Service() {
         keepAwakeParams = null
     }
 
+    private fun registerScreenReceiver() {
+        if (screenReceiverRegistered) return
+        screenReceiverRegistered = true
+        registerReceiver(screenReceiver, IntentFilter(Intent.ACTION_USER_PRESENT))
+        Log.d(TAG, "screen receiver registered")
+    }
+
+    private fun unregisterScreenReceiver() {
+        if (!screenReceiverRegistered) return
+        screenReceiverRegistered = false
+        try {
+            unregisterReceiver(screenReceiver)
+        } catch (_: Exception) {}
+    }
+
     private fun baseNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(R.drawable.extinguish_24px)
         .setContentTitle(getString(R.string.app_name))
@@ -250,6 +279,7 @@ class QuickScreenOffService : Service() {
 
     private fun stopSelfAndCleanup() {
         timerJob?.cancel()
+        unregisterScreenReceiver()
         removeKeepAwakeWindow()
         stopForeground(STOP_FOREGROUND_REMOVE)
         scope.cancel()
@@ -261,6 +291,7 @@ class QuickScreenOffService : Service() {
     override fun onDestroy() {
         timerJob?.cancel()
         scope.cancel()
+        unregisterScreenReceiver()
         removeKeepAwakeWindow()
         try {
             Shizuku.unbindUserService(args, connection, false)
