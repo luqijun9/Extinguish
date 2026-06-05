@@ -367,7 +367,7 @@ class QuickScreenOffService : Service() {
 
     private fun toggleScreenAndCancel() {
         if (timerCancelled) return
-        if (gohomeEnabled) {
+        if (gohomeEnabled && currentScreenMode == DisplayControlService.POWER_MODE_OFF) {
             scope.launch(Dispatchers.Main) {
                 goHomeAndWake()
             }
