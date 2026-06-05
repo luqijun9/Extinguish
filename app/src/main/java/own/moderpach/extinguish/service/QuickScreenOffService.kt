@@ -63,6 +63,7 @@ class QuickScreenOffService : Service() {
     private var pendingAction = -1
     private var timerSeconds = 0
     private var timerJob: kotlinx.coroutines.Job? = null
+    private var cleanupDelayJob: kotlinx.coroutines.Job? = null
 
     private var keepAwakeView: View? = null
     private var keepAwakeParams: WindowManager.LayoutParams? = null
@@ -209,12 +210,12 @@ class QuickScreenOffService : Service() {
                 timerJob?.cancel()
                 timerJob = null
             }
-            scope.launch {
-                delay(5000)
-                stopSelfAndCleanup()
-            }
+            scheduleDelayedCleanup()
             return START_NOT_STICKY
         }
+        cleanupDelayJob?.cancel()
+        cleanupDelayJob = null
+        timerCancelled = false
         pendingAction = when (intent.getIntExtra(EXTRA_SCREEN, -1)) {
             SCREEN_ON -> DisplayControlService.POWER_MODE_NORMAL
             SCREEN_OFF -> DisplayControlService.POWER_MODE_OFF
@@ -359,10 +360,7 @@ class QuickScreenOffService : Service() {
         timerJob = null
         displayControl?.setPowerModeToSurfaceControl(DisplayControlService.POWER_MODE_NORMAL)
         notifyTimerCancelled()
-        scope.launch {
-            delay(5000)
-            stopSelfAndCleanup()
-        }
+        scheduleDelayedCleanup()
     }
 
     private fun toggleScreenAndCancel() {
@@ -375,18 +373,26 @@ class QuickScreenOffService : Service() {
             displayControl?.setPowerModeToSurfaceControl(DisplayControlService.POWER_MODE_NORMAL)
             Log.d(TAG, "volume up: turned screen on and cancelling timer")
         }
-        try {
-            val am = getSystemService(AUDIO_SERVICE) as AudioManager
-            am.adjustVolume(AudioManager.ADJUST_LOWER, 0)
-            Log.d(TAG, "volume down to offset volume up key press")
-        } catch (e: Exception) {
-            Log.w(TAG, "failed to adjust volume: $e")
-        }
         timerCancelled = true
         timerJob?.cancel()
         timerJob = null
         notifyTimerCancelled()
-        scope.launch {
+        scheduleDelayedCleanup()
+        scope.launch(Dispatchers.Main) {
+            delay(100)
+            try {
+                val am = getSystemService(AUDIO_SERVICE) as AudioManager
+                am.adjustVolume(AudioManager.ADJUST_LOWER, 0)
+                Log.d(TAG, "volume down to offset volume up key press")
+            } catch (e: Exception) {
+                Log.w(TAG, "failed to adjust volume: $e")
+            }
+        }
+    }
+
+    private fun scheduleDelayedCleanup() {
+        cleanupDelayJob?.cancel()
+        cleanupDelayJob = scope.launch {
             delay(5000)
             stopSelfAndCleanup()
         }
@@ -491,11 +497,11 @@ class QuickScreenOffService : Service() {
 
     private fun stopSelfAndCleanup() {
         timerJob?.cancel()
+        cleanupDelayJob?.cancel()
         stopVolumeKey()
         unregisterScreenReceiver()
         removeKeepAwakeWindow()
         stopForeground(STOP_FOREGROUND_REMOVE)
-        scope.cancel()
         stopSelf()
     }
 
