@@ -379,7 +379,7 @@ class QuickScreenOffService : Service() {
         notifyTimerCancelled()
         scheduleDelayedCleanup()
         scope.launch(Dispatchers.Main) {
-            delay(100)
+            delay(50)
             try {
                 val am = getSystemService(AUDIO_SERVICE) as AudioManager
                 am.adjustVolume(AudioManager.ADJUST_LOWER, 0)
