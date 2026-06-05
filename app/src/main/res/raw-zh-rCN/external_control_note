@@ -29,6 +29,16 @@
 `am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer 30
 volkey 原理：通过 Shizuku 运行 getevent 监听音量键按下事件。空闲时阻塞读取输入设备，几乎不耗电。通知栏的"取消"按钮可随时停止定时器。锁屏解锁后自动取消定时器。
 
+参数 gohome
+    设为 1 可在音量加键亮屏前先回到主屏幕。
+    启用后：按下音量+键（非音量-键）将先执行两次回到主屏幕（间隔300ms），然后再亮屏并取消定时器。
+    这确保亮屏时没有其他App在前台。
+    音量-键行为不变（切换亮灭屏，不取消定时器）。
+    不指定此参数（默认 0）则跳过此行为。
+    仅在与 volkey=1 和 timer 参数搭配使用时生效。
+示例 - 灭屏定时+音量键控制+音量加键回主屏：
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer 300 --ei volkey 1 --ei gohome 1
+
 快速灭屏（仅 Root，无需 Shizuku）
 通过 root 权限直接使用 app_process 执行屏幕电源控制，不需要 Shizuku。
 

@@ -29,6 +29,16 @@ Example - turn screen off with 30s timer, no volume key monitoring:
 `am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer 30
 How volkey works: uses getevent to monitor volume key presses via Shizuku. Idle monitoring has negligible battery impact (blocking read on input device). The notification's "Cancel" button stops the timer immediately. Lock screen unlock still cancels the timer automatically.
 
+Parameter gohome
+    Set to 1 to enable "go home" before wake-up on volume up key.
+    When enabled: pressing volume UP (not DOWN) during timer will first navigate to the home screen twice (300ms interval) before turning the screen on, then cancel the timer.
+    This ensures no app is in the foreground when the screen wakes.
+    Volume DOWN behavior is unchanged (toggles screen without going home or cancelling timer).
+    Omit this parameter (default 0) to skip this behavior.
+    Only takes effect when used together with volkey=1 and timer parameters.
+Example - turn screen off with timer, volume key control, and go-home on volume up:
+`am start -n own.moderpach.extinguish/.service.QuickScreenOffActivity --ei screen 1 --ei timer 300 --ei volkey 1 --ei gohome 1
+
 Quick Screen Off (root only, no Shizuku needed)
 Use root privilege to directly execute the screen power control via app_process. No Shizuku required.
 

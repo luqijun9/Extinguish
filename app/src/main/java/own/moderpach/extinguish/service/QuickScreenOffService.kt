@@ -46,6 +46,7 @@ class QuickScreenOffService : Service() {
         const val EXTRA_SCREEN = "screen"
         const val EXTRA_TIMER = "timer"
         const val EXTRA_VOLKEY = "volkey"
+        const val EXTRA_GOHOME = "gohome"
         const val EXTRA_CANCEL = "cancel"
         const val SCREEN_ON = 0
         const val SCREEN_OFF = 1
@@ -69,6 +70,7 @@ class QuickScreenOffService : Service() {
     private var timerCancelled = false
     private var volumeKeyRegistered = false
     private var volkeyEnabled = false
+    private var gohomeEnabled = false
     private var currentScreenMode = DisplayControlService.POWER_MODE_NORMAL
 
     private val screenReceiver = object : BroadcastReceiver() {
@@ -223,6 +225,7 @@ class QuickScreenOffService : Service() {
         }
         timerSeconds = intent.getIntExtra(EXTRA_TIMER, 0)
         volkeyEnabled = intent.getIntExtra(EXTRA_VOLKEY, 0) == 1
+        gohomeEnabled = intent.getIntExtra(EXTRA_GOHOME, 0) == 1
         if (volkeyEnabled) {
             bindEventsServiceIfNeeded()
         }
@@ -364,8 +367,14 @@ class QuickScreenOffService : Service() {
 
     private fun toggleScreenAndCancel() {
         if (timerCancelled) return
-        displayControl?.setPowerModeToSurfaceControl(DisplayControlService.POWER_MODE_NORMAL)
-        Log.d(TAG, "volume up: turned screen on and cancelling timer")
+        if (gohomeEnabled) {
+            scope.launch(Dispatchers.Main) {
+                goHomeAndWake()
+            }
+        } else {
+            displayControl?.setPowerModeToSurfaceControl(DisplayControlService.POWER_MODE_NORMAL)
+            Log.d(TAG, "volume up: turned screen on and cancelling timer")
+        }
         try {
             val am = getSystemService(AUDIO_SERVICE) as AudioManager
             am.adjustVolume(AudioManager.ADJUST_LOWER, 0)
@@ -381,6 +390,21 @@ class QuickScreenOffService : Service() {
             delay(5000)
             stopSelfAndCleanup()
         }
+    }
+
+    private suspend fun goHomeAndWake() {
+        for (i in 1..2) {
+            startActivity(
+                Intent(Intent.ACTION_MAIN).apply {
+                    addCategory(Intent.CATEGORY_HOME)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+            )
+            if (i < 2) delay(300)
+        }
+        delay(100)
+        displayControl?.setPowerModeToSurfaceControl(DisplayControlService.POWER_MODE_NORMAL)
+        Log.d(TAG, "volume up: go home x2, then turned screen on and cancelling timer")
     }
 
     private fun toggleScreenByVolumeKey() {
